@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SENTINEL-AI · Unidirectional Cyber Threat Detection</title>
+<meta name="description" content="Streaming AI/ML threat detection over one-way mirrored IP traffic: ingest, feature extraction, model inference, alerts and live dashboard.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 4 7v10c0 7 5 12 12 13 7-1 12-6 12-13V7z' fill='%2300d3a7'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 4 7v10c0 7 5 12 12 13 7-1 12-6 12-13V7z"/><path d="M16 9v14M9 14l7-5 7 5" class="s"/></svg>
+    <div>
+      <h1>SENTINEL<span>-AI</span></h1>
+      <p>Unidirectional IP threat detection enclave</p>
+    </div>
+  </div>
+  <div class="flow-diagram" aria-label="one-way ingest architecture">
+    <span class="fd-node">PROD NET</span>
+    <span class="fd-arrow" title="read-only, physically one-way">──▶<i>diodes / SPAN</i></span>
+    <span class="fd-node active">MONITORING ENCLAVE</span>
+    <span class="fd-cut" title="no return path">✕</span>
+    <span class="fd-node dim">AI PIPELINE</span>
+  </div>
+  <div class="status-block">
+    <div class="pill" id="enginePill"><i class="dot"></i><span id="engineStatus">booting</span></div>
+    <div class="pill dim" id="modePill">read-only · no decrypt · no active response</div>
+  </div>
+</header>
+
+<section class="controls">
+  <div class="ctl-group">
+    <button id="btnPlay" class="btn primary">❚❚ Pause</button>
+    <button id="btnStep" class="btn">▶❙ Step</button>
+    <button id="btnReset" class="btn">↺ Reset</button>
+  </div>
+  <div class="ctl-group">
+    <label class="lbl">Speed</label>
+    <div class="seg" id="speedSeg">
+      <button data-v="1">1×</button><button data-v="2" class="on">2×</button>
+      <button data-v="4">4×</button><button data-v="8">8×</button><button data-v="16">16×</button>
+    </div>
+  </div>
+  <div class="ctl-group">
+    <label class="lbl">DDoS intensity</label>
+    <input type="range" id="ddosRange" min="0" max="4" step="0.1" value="1.6">
+    <span class="val" id="ddosVal">1.6</span>
+  </div>
+  <div class="ctl-group grow">
+    <label class="lbl">Injectors</label>
+    <div class="chips" id="injectChips"></div>
+  </div>
+  <div class="ctl-group">
+    <button id="btnExport" class="btn">⭳ Alerts JSON</button>
+    <button id="btnModel" class="btn">⭳ Model</button>
+    <button id="btnBench" class="btn">⚡ Benchmark</button>
+  </div>
+</section>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="live" class="on">Live Detection</button>
+  <button data-tab="alerts">Alerts <span class="badge" id="alertBadge">0</span></button>
+  <button data-tab="model">Model &amp; Training</button>
+  <button data-tab="features">Feature Set</button>
+  <button data-tab="arch">Architecture &amp; Docs</button>
+</nav>
+
+<main>
+  <section class="page on" id="page-live">
+    <div class="kpis">
+      <div class="kpi"><span class="k-lbl">Flows ingested</span><b id="kFlows">0</b><span class="k-sub" id="kFlowsRate">0 f/s</span></div>
+      <div class="kpi"><span class="k-lbl">Sustained throughput</span><b id="kTput">0</b><span class="k-sub">flow records / s</span></div>
+      <div class="kpi"><span class="k-lbl">Bit rate observed</span><b id="kBits">0</b><span class="k-sub">Mbps @ 1500 B/Ethernet frame</span></div>
+      <div class="kpi"><span class="k-lbl">Entities tracked</span><b id="kViews">0</b><span class="k-sub" id="kViewsSub">0 slow-horizon</span></div>
+      <div class="kpi"><span class="k-lbl">Inference p99 latency</span><b id="kLat">0</b><span class="k-sub">ms window→alert</span></div>
+      <div class="kpi danger"><span class="k-lbl">Active alerts</span><b id="kAlerts">0</b><span class="k-sub" id="kAlertsSub">critical 0 · high 0</span></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Ingest rate</h3><span class="hint">flow records / s (1 s buckets)</span></div>
+        <div class="cv-wrap h180"><canvas id="cRate"></canvas></div>
+        <div class="legend" id="lgRate"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Observed bit rate</h3><span class="hint">Mbps sustained</span></div>
+        <div class="cv-wrap h180"><canvas id="cBits"></canvas></div>
+        <div class="legend" id="lgBits"></div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-h"><h3>Alerts by class</h3></div>
+        <div class="cv-wrap h190"><canvas id="cClass"></canvas></div>
+        <div class="legend" id="lgClass"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Severity mix</h3></div>
+        <div class="cv-wrap h190"><canvas id="cSev"></canvas></div>
+        <div class="legend" id="lgSev"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Detection confidence</h3><span class="hint">fused score of emitted alerts</span></div>
+        <div class="cv-wrap h190"><canvas id="cConf"></canvas></div>
+        <div class="legend" id="lgConf"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Entity map</h3><span class="hint">x = peer entropy · y = out/in byte asymmetry · r = peer fan-out</span></div>
+        <div class="cv-wrap h220"><canvas id="cScatter"></canvas></div>
+        <div class="legend" id="lgScatter"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Live detection stream</h3><span class="hint">most recent first</span></div>
+        <div class="stream" id="liveStream"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="page-alerts">
+    <div class="card">
+      <div class="card-h">
+        <h3>Alert record store</h3>
+        <div class="filters">
+          <select id="fClass"><option value="">all classes</option></select>
+          <select id="fSev">
+            <option value="0">all severities</option>
+            <option value="5">critical (5)</option>
+            <option value="4">high (4)</option>
+            <option value="3">medium (3)</option>
+            <option value="2">low (2)</option>
+            <option value="1">informational (1)</option>
+          </select>
+          <input id="fText" type="search" placeholder="filter entity / evidence…">
+          <span class="hint" id="alertCount"></span>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl" id="alertTable">
+          <thead><tr>
+            <th>Timestamp (UTC)</th><th>Alert ID</th><th>Entity</th><th>Threat class</th>
+            <th>Conf.</th><th>Sev.</th><th>Horizon</th><th>Top evidence</th><th>MITRE</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" id="schemaCard">
+      <div class="card-h"><h3>Standardized alert schema</h3><span class="hint">exact JSON emitted by the pipeline</span></div>
+      <pre class="code" id="schemaSample"></pre>
+    </div>
+  </section>
+
+  <section class="page" id="page-model">
+    <div class="card">
+      <div class="card-h"><h3>Model</h3><span class="hint" id="modelHint">softmax multinomial logistic regression · 7 classes · 58 features</span></div>
+      <div class="model-grid">
+        <div>
+          <div class="sub-h">Training pipeline</div>
+          <ol class="steps" id="trainSteps">
+            <li data-s="0">Synthesise labelled flow corpora through the real ingest path</li>
+            <li data-s="0">Warm up 420 s of stream so long-horizon baselines exist</li>
+            <li data-s="0">Extract 1 s and 30 s window feature vectors from the extractor</li>
+            <li data-s="0">Standardise (z-score using train split only)</li>
+            <li data-s="0">Fit by mini-batch SGD, 60 epochs, cosine-decayed LR, L2</li>
+            <li data-s="0">Validate on held-out 25 % split · per-class P/R/F1 + confusion</li>
+          </ol>
+          <div class="progress"><div id="trainBar"></div></div>
+          <div class="stat-grid" id="trainStats"></div>
+          <div class="ctl-group" style="margin-top:12px">
+            <button id="btnRetrain" class="btn primary">↻ Retrain model</button>
+            <button id="btnLoadModel" class="btn">⭱ Load model JSON</button>
+            <input type="file" id="fileModel" accept="application/json" hidden>
+          </div>
+        </div>
+        <div>
+          <div class="sub-h">Loss (mini-batch cross-entropy)</div>
+          <div class="cv-wrap h170"><canvas id="cLoss"></canvas></div>
+          <div class="sub-h">Validation confusion matrix</div>
+          <div class="cv-wrap h250"><canvas id="cConf2"></canvas></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Per-class metrics (held-out)</h3></div>
+        <div class="table-wrap"><table class="tbl" id="metricsTable">
+          <thead><tr><th>Class</th><th>Support</th><th>Precision</th><th>Recall</th><th>F1</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Largest learned weights</h3><span class="hint">standardised coefficients per class</span></div>
+        <div class="class-tabs" id="wTabs"></div>
+        <div class="cv-wrap h300"><canvas id="cWeights"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="page-features">
+    <div class="card">
+      <div class="card-h"><h3>Engineered feature set</h3><span class="hint" id="featCount"></span></div>
+      <div class="table-wrap"><table class="tbl" id="featTable">
+        <thead><tr><th>#</th><th>Feature</th><th>Family</th><th>Purpose</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="page" id="page-arch">
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-h"><h3>Constraint compliance</h3></div>
+        <div class="table-wrap"><table class="tbl" id="constraintTable">
+          <thead><tr><th>Constraint</th><th>How it is met</th></tr></thead><tbody></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Throughput benchmark</h3><span class="hint">client-side, measured in this browser</span></div>
+        <div class="cv-wrap h150"><canvas id="cBench"></canvas></div>
+        <div class="stat-grid" id="benchStats"></div>
+        <div class="ctl-group" style="margin-top:10px">
+          <button id="btnBench2" class="btn primary">⚡ Run benchmark (ingest + features + inference)</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Operating notes</h3></div>
+      <div class="doc" id="docNotes"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Read-only ingest · no probes · no handshakes · no inline block · no payload decryption</span>
+  <span class="dim" id="footStat"></span>
+</footer>
+
+<div class="overlay" id="boot">
+  <div class="boot-card">
+    <svg class="logo big" viewBox="0 0 32 32"><path d="M16 2 4 7v10c0 7 5 12 12 13 7-1 12-6 12-13V7z"/><path d="M16 9v14M9 14l7-5 7 5" class="s"/></svg>
+    <h2>Initialising enclave</h2>
+    <p id="bootMsg">building character n-gram model…</p>
+    <div class="progress"><div id="bootBar"></div></div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/lex.js"></script>
+<script src="js/traffic-sim.js"></script>
+<script src="js/features.js"></script>
+<script src="js/model.js"></script>
+<script src="js/detectors.js"></script>
+<script src="js/alerts.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>
